@@ -1,3 +1,3 @@
-# System Analysis scripts
+# System Profiler
 
-This repo saves some scripts for system analysis
+This repo saves some scripts for system profiling
