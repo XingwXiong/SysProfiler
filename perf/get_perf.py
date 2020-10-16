@@ -3,7 +3,8 @@
 """ Perf Script
 
 Examples:
-    python get_perf.py --output perf.csv --cmd_line 'ls -lrth'
+    system-wide:  $ python get_perf.py --output perf.csv
+    command line: $ python get_perf.py --output perf.csv --cmd 'sleep 1'
 """
 import os
 import sys
@@ -11,12 +12,20 @@ import re
 import subprocess
 import argparse
 import pandas as pd
+import logging
+import json
+
+logging_fmt = '%(asctime)s - %(pathname)s[line:%(lineno)d] - %(levelname)s: %(message)s'
+logging.basicConfig(format=logging_fmt, level=logging.INFO)
 
 
 def popen(cmd):
+    # blocked execution
+    logging.info("==> cmd running: %s <==" % cmd)
     p = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()
+    logging.info("cmd finished")
     return out + err
 
 
@@ -29,39 +38,61 @@ def parse_args():
     return parser.parse_args()
 
 
-event_codes = ['r3c', 'rc0', 'rc4', 'r10b', 'r20b', 'r110',
-               'uncore/event=0x2c,umask=0x07/', 'uncore/event=0x2f,umask=0x07/', 'r01c2']
-event_descs = ['cycles', 'ins', 'br', 'load',
-               'store', 'fp', 'UNC_READ', 'UNC_WRITE', 'UOPS']
+event_codes = ['r3c', 'rc0', 'rc4', 'r10b', 'r20b', 'r110']
+event_descs = ['cycles', 'ins', 'br', 'load', 'store', 'fp']
+event_codes_str = ','.join(event_codes)
+
+
+def launch_perf_stat_system_wide(interval=1):
+    perf_cmd = 'sudo perf stat -a -e %s sleep %f' % (event_codes_str, interval)
+    out = str(popen(perf_cmd))
+    return out
+
+
+def launch_perf_stat_command(cmd, repeat=1):
+    perf_cmd = 'sudo perf stat -e %s -r %d %s' % (event_codes_str, repeat, cmd)
+    out = str(popen(perf_cmd))
+    return out
+
+
+def parse_perf_stat(cmd_out):
+    cmd_out = cmd_out.replace(',', '')
+    counters = map(int, re.findall('\s+(\d+)\s+', cmd_out, re.M))
+    elapsed_time = float(re.findall(
+        '\s+(\d+\.*\d+) seconds time elapsed', cmd_out, re.M)[0])
+
+    stat = dict(zip(event_descs, counters))
+    logging.debug("stat dict: %s" % json.dumps(stat, indent=2))
+    stat['elapsed_time'] = elapsed_time
+    stat['int'] = stat['ins'] - stat['load'] - \
+        stat['br'] - stat['store'] - stat['fp']
+    # stat['mem_band'] = (stat['UNC_READ'] + stat['UNC_WRITE']) * 64 / stat['elapsed_time']
+    return stat
 
 
 def perf_system_analysis(output, interval=1, epoch_num=10):
-    perf_cmd = 'sudo perf stat -a -e %s sleep %f' % (
-        ','.join(event_codes), interval)
     if os.path.exists(output):
         os.remove(output)
     for epoch in range(epoch_num):
-        out = str(popen(perf_cmd))
-        out = out.replace(',', '')
-        counters = re.findall('\s+(\d+)\s+', out, re.M)
-        elapsed_time = float(re.findall('\s+(\d+\.*\d+) seconds time elapsed', out, re.M)[0])
-        df = pd.DataFrame([dict(zip(event_descs, counters))]).astype(int)
-        
-        df['elapsed_time'] = elapsed_time
-        df['int'] = df['ins'] - df['load'] - df['br'] - df['store'] - df['fp']
-        df['mem_band'] = (df['UNC_READ'] + df['UNC_WRITE']) * 64 / df['elapsed_time']
-
+        out = launch_perf_stat_system_wide(interval=1)
+        stat = parse_perf_stat(out)
+        df = pd.DataFrame([stat])
         if not os.path.exists(output):
             df.to_csv(output, mode='w', header=True, index=False)
         else:
             df.to_csv(output, mode='a', header=False, index=False)
     stats_df = pd.read_csv(output)
-    print(stats_df)
+    logging.info("system-wide stat:\n%s" % str(stats_df))
 
 
 def perf_cmd_analysis(output, run_cmd):
-    perf_cmd = 'perf stat -e %s "%s"' % (','.join(event_codes), run_cmd)
-    print(perf_cmd)
+    if os.path.exists(output):
+        os.remove(output)
+    out = launch_perf_stat_command(run_cmd)
+    stat = parse_perf_stat(out)
+    df = pd.DataFrame([stat])
+    df.to_csv(output, mode='w', header=True, index=False)
+    logging.info("cmd stat:\n%s" % str(df))
 
 
 def run():
