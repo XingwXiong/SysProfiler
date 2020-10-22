@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+# encoding: utf-8
 """ Perf Stat Parser Script
 
 Examples:
@@ -64,9 +64,26 @@ def parse_perf_mem(perf_file):
     """
     if not os.path.exists(perf_file):
         raise FileNotFound("%s" % perf_file)
-    df = pd.read_csv(perf_file).rename(columns=lambda x: x.strip())
+
+    try:
+        df = pd.read_csv(perf_file).rename(columns=lambda x: x.strip())
+        addr = df['ADDR'].tolist()
+    except pd.errors.ParserError:
+        addr = []
+        with open(perf_file, 'r') as fd:
+            line = fd.readline() # skip first row
+            while True:
+                line = fd.readline()
+                ncol = len(line.split(','))
+                if not line:
+                    break
+                row = line.split(',')
+                if len(row) < ncol:
+                    continue
+                addr.append(row[3])
     mem_df = pd.DataFrame([{
-        'mem_entropy': calc_entropy(df['ADDR'])
+        'mem_entropy': calc_entropy(addr),
+        'mem_addr_sz': len(addr)
     }])
     return mem_df
 

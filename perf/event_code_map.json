@@ -18,7 +18,7 @@
     "rc0:k": "ins:k",
     "rc0:u": "ins:u",
     "rc1": "X87",
-    "rc4": "BR_re",
+    "rc4": "br",
     "rc5": "BR_miss",
     "uncore/event=0x2c,umask=0x07/": "UNC_READ",
     "uncore/event=0x2f,umask=0x07/": "UNC_WRITE"
