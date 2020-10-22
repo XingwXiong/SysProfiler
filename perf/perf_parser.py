@@ -3,7 +3,8 @@
 """ Perf Stat Parser Script
 
 Examples:
-    $ python get_perf.py -t stat -i perf.log
+    $ python get_perf.py -t stat -i perf.stat.log
+    $ python get_perf.py -t stat -i perf.mem.log
 """
 import os
 import sys
@@ -11,7 +12,7 @@ import re
 import argparse
 import pandas as pd
 import json
-from common.utils import logger
+from common.utils import *
 
 
 def parse_args():
@@ -56,12 +57,32 @@ def parse_perf_stat(perf_file):
     return stat_df
 
 
+def parse_perf_mem(perf_file):
+    """get memory entropy
+    To get perf_file, you need to run:
+            sudo perf mem -D -x , report > /path/to/perf_file
+    """
+    if not os.path.exists(perf_file):
+        raise FileNotFound("%s" % perf_file)
+    df = pd.read_csv(perf_file).rename(columns=lambda x: x.strip())
+    mem_df = pd.DataFrame([{
+        'mem_entropy': calc_entropy(df['ADDR'])
+    }])
+    return mem_df
+
+
 def run():
     parser = parse_args()
+
     if parser.type == 'stat':
-        stat_df = parse_perf_stat(parser.input)
-        parser.output and stat_df.to_csv(parser.output, index=False)
-        print(stat_df)
+        df = parse_perf_stat(parser.input)
+    elif parser.type == 'mem':
+        df = parse_perf_mem(parser.input)
+    else:
+        raise TypeError("Invalid parser type=%s", parser.type)
+
+    print(df)
+    parser.output and df.to_csv(parser.output, index=False)
 
 
 if __name__ == '__main__':
